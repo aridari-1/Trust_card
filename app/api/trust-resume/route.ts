@@ -1,10 +1,9 @@
 // app/api/trust-resume/route.ts
-// PDF generated with pdf-lib (pure JS — no Python/reportlab needed)
-// Install: npm install pdf-lib
+// npm install pdf-lib
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { PDFDocument, rgb, StandardFonts, degrees } from "pdf-lib";
+import { PDFDocument, rgb, StandardFonts, PDFPage } from "pdf-lib";
 
 // ─── Context filters ──────────────────────────────────────────────────────────
 const CONTEXT_FILTERS: Record<string, string[]> = {
@@ -51,39 +50,34 @@ const RELATIONSHIP_LABELS: Record<string, string> = {
   friend:       "Friend",
 };
 
-// ─── Color helpers (pdf-lib uses 0-1 RGB) ────────────────────────────────────
-const hex = (h: string) => {
+// ─── Color helper ─────────────────────────────────────────────────────────────
+function hex(h: string) {
   const n = parseInt(h.replace("#", ""), 16);
   return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
-};
+}
 
 const C = {
   black:   hex("#0a0a0a"),
   cardBg:  hex("#141428"),
   purple:  hex("#a855f7"),
-  cyan:    hex("#06b6d4"),
   white:   hex("#ffffff"),
   greyMid: hex("#9ca3af"),
   greyDrk: hex("#6b7280"),
   green:   hex("#22c55e"),
   border:  hex("#2a2a3a"),
+  dark2:   hex("#1a1a2e"),
   badgeBg: [
     hex("#374151"), hex("#374151"), hex("#1e3a5f"),
     hex("#2e1a4a"), hex("#0f3040"), hex("#052e16"),
-  ] as const,
+  ],
   badgeFg: [
     hex("#9ca3af"), hex("#9ca3af"), hex("#93c5fd"),
     hex("#d8b4fe"), hex("#67e8f9"), hex("#22c55e"),
-  ] as const,
+  ],
 };
 
-// ─── Text wrap helper ─────────────────────────────────────────────────────────
-function wrapText(
-  text: string,
-  font: any,
-  size: number,
-  maxWidth: number
-): string[] {
+// ─── Text wrap ────────────────────────────────────────────────────────────────
+function wrapText(text: string, font: any, size: number, maxWidth: number): string[] {
   const words = text.split(" ");
   const lines: string[] = [];
   let line = "";
@@ -100,50 +94,27 @@ function wrapText(
   return lines;
 }
 
-// ─── Draw rounded rect (pdf-lib doesn't have one built-in) ───────────────────
-function roundedRect(
-  page: any,
-  x: number, y: number, w: number, h: number,
-  r: number,
-  fillColor?: any,
-  strokeColor?: any,
-  strokeWidth = 0.5
+// ─── Safe text (strips non-latin1 for StandardFonts) ─────────────────────────
+function safeText(
+  p: PDFPage, text: string, x: number, yPos: number,
+  font: any, size: number, color: any
 ) {
-  const ops: string[] = [];
-  // Move to start
-  ops.push(`${x + r} ${y} m`);
-  ops.push(`${x + w - r} ${y} l`);
-  ops.push(`${x + w} ${y} ${x + w} ${y + r} ${r} y`);
-  ops.push(`${x + w} ${y + h - r} l`);
-  ops.push(`${x + w} ${y + h} ${x + w - r} ${y + h} ${r} y`);
-  ops.push(`${x + r} ${y + h} l`);
-  ops.push(`${x} ${y + h} ${x} ${y + h - r} ${r} y`);
-  ops.push(`${x} ${y + r} l`);
-  ops.push(`${x} ${y} ${x + r} ${y} ${r} y`);
-
-  if (fillColor && strokeColor) {
-    page.drawSvgPath(ops.join(" "), {
-      x: 0, y: 0, color: fillColor,
-      borderColor: strokeColor, borderWidth: strokeWidth,
-    });
-  } else if (fillColor) {
-    page.drawSvgPath(ops.join(" "), { x: 0, y: 0, color: fillColor });
-  } else if (strokeColor) {
-    page.drawSvgPath(ops.join(" "), {
-      x: 0, y: 0, color: undefined,
-      borderColor: strokeColor, borderWidth: strokeWidth,
-    });
+  const safe = text.replace(/[^\x00-\xFF]/g, "");
+  if (!safe.trim()) return;
+  try {
+    p.drawText(safe, { x, y: yPos, font, size, color });
+  } catch {
+    // silently skip characters that can't be encoded
   }
 }
 
-// ─── GET handler ──────────────────────────────────────────────────────────────
+// ─── GET ──────────────────────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const context = searchParams.get("context") ?? "all";
   const userId  = searchParams.get("userId");
 
-  const authHeader = req.headers.get("authorization");
-  const token = authHeader?.replace("Bearer ", "");
+  const token = req.headers.get("authorization")?.replace("Bearer ", "");
   if (!token || !userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -202,82 +173,82 @@ export async function GET(req: NextRequest) {
   const highCredCount  = vouches?.filter((v: any) => (v.credibility_weight ?? 1) >= 4).length ?? 0;
   const ctxLabel       = CONTEXT_LABELS[context] ?? "Full Profile";
 
-  // ── Build PDF ──────────────────────────────────────────────────────────────
+  // ── PDF setup ──────────────────────────────────────────────────────────────
   const pdfDoc = await PDFDocument.create();
   const bold   = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const reg    = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const italic = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
 
-  const PAGE_W = 595;  // A4 pts
-  const PAGE_H = 842;
-  const M      = 50;   // margin
-  const INNER  = PAGE_W - M * 2;
+  const PW = 595;   // A4 width pts
+  const PH = 842;   // A4 height pts
+  const M  = 50;    // margin
+  const IW = PW - M * 2; // inner width
 
-  function addPage() {
-    const p = pdfDoc.addPage([PAGE_W, PAGE_H]);
-    // Dark background
-    p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: C.black });
+  function addPage(): PDFPage {
+    const p = pdfDoc.addPage([PW, PH]);
+    p.drawRectangle({ x: 0, y: 0, width: PW, height: PH, color: C.black });
     return p;
   }
 
   let page = addPage();
-  let y    = PAGE_H - M; // current Y (pdf-lib: 0 = bottom)
-
-  // ── Helper: draw text safely (strips non-latin1 chars) ──────────────────
-  function safeText(
-    p: any, text: string, x: number, yPos: number,
-    font: any, size: number, color: any
-  ) {
-    // pdf-lib StandardFonts only support latin-1; strip anything outside
-    const safe = text.replace(/[^\x00-\xFF]/g, "");
-    if (!safe.trim()) return;
-    p.drawText(safe, { x, y: yPos, font, size, color });
-  }
+  let y    = PH - M;
 
   // ── Header strip ──────────────────────────────────────────────────────────
   const STRIP_H = 32;
-  page.drawRectangle({ x: M, y: PAGE_H - M - STRIP_H, width: INNER, height: STRIP_H, color: C.cardBg });
-  // Purple dot
-  page.drawEllipse({ x: M + 18, y: PAGE_H - M - STRIP_H / 2, xScale: 7, yScale: 7, color: C.purple });
-  safeText(page, "TRUSTCARD", M + 30, PAGE_H - M - STRIP_H / 2 - 3.5, reg, 7, C.greyMid);
-  const ctxW = reg.widthOfTextAtSize(ctxLabel.toUpperCase(), 7);
-  safeText(page, ctxLabel.toUpperCase(), PAGE_W - M - ctxW - 6, PAGE_H - M - STRIP_H / 2 - 3.5, reg, 7, C.greyMid);
+  page.drawRectangle({ x: M, y: PH - M - STRIP_H, width: IW, height: STRIP_H, color: C.cardBg });
 
-  y = PAGE_H - M - STRIP_H - 10;
+  // Purple dot — drawCircle not available, use a small filled rectangle
+  page.drawRectangle({ x: M + 12, y: PH - M - STRIP_H / 2 - 4, width: 8, height: 8, color: C.purple });
+
+  safeText(page, "TRUSTCARD", M + 26, PH - M - STRIP_H / 2 - 3, reg, 7, C.greyMid);
+  const ctxW = reg.widthOfTextAtSize(ctxLabel.toUpperCase(), 7);
+  safeText(page, ctxLabel.toUpperCase(), PW - M - ctxW - 6, PH - M - STRIP_H / 2 - 3, reg, 7, C.greyMid);
+
+  y = PH - M - STRIP_H - 10;
 
   // ── Identity card ──────────────────────────────────────────────────────────
   const CARD_H = 110;
-  page.drawRectangle({ x: M, y: y - CARD_H, width: INNER, height: CARD_H, color: C.cardBg });
-  // Border
-  page.drawRectangle({ x: M, y: y - CARD_H, width: INNER, height: CARD_H,
-    borderColor: C.border, borderWidth: 0.5, opacity: 0 });
+  // Fill
+  page.drawRectangle({ x: M, y: y - CARD_H, width: IW, height: CARD_H, color: C.cardBg });
+  // Border (draw as 4 lines — more reliable than drawRectangle borderColor)
+  const bx = M, by = y - CARD_H, bw = IW, bh = CARD_H;
+  const bl = 0.5;
+  page.drawLine({ start: { x: bx,      y: by      }, end: { x: bx + bw, y: by      }, color: C.border, thickness: bl });
+  page.drawLine({ start: { x: bx,      y: by + bh }, end: { x: bx + bw, y: by + bh }, color: C.border, thickness: bl });
+  page.drawLine({ start: { x: bx,      y: by      }, end: { x: bx,      y: by + bh }, color: C.border, thickness: bl });
+  page.drawLine({ start: { x: bx + bw, y: by      }, end: { x: bx + bw, y: by + bh }, color: C.border, thickness: bl });
 
-  // Name
   safeText(page, profile.full_name, M + 18, y - 32, bold, 22, C.white);
   safeText(page, `@${profile.username}`, M + 18, y - 50, reg, 9, C.greyDrk);
   const infoParts = [profile.major, profile.school].filter(Boolean).join("  .  ");
   if (infoParts) safeText(page, infoParts, M + 18, y - 66, reg, 9, C.greyMid);
 
-  // Score ring (drawn as concentric circles)
-  const score   = profile.trust_score ?? 0;
-  const ringCX  = PAGE_W - M - 60;
-  const ringCY  = y - CARD_H / 2;
-  const ringR   = 26;
-  page.drawEllipse({ x: ringCX, y: ringCY, xScale: ringR + 4, yScale: ringR + 4,
-    borderColor: C.border, borderWidth: 3, opacity: 0 });
+  // Score "ring" — two concentric squares (rings not possible without SVG)
+  const score    = profile.trust_score ?? 0;
+  const rCX      = PW - M - 55;
+  const rCY      = y - CARD_H / 2;
+  const rSize    = 26;
   const ringColor = score >= 70 ? C.green : score >= 40 ? C.purple : C.greyDrk;
-  page.drawEllipse({ x: ringCX, y: ringCY, xScale: ringR, yScale: ringR,
-    borderColor: ringColor, borderWidth: 3, opacity: 0 });
+  // Outer border square
+  page.drawRectangle({ x: rCX - rSize - 4, y: rCY - rSize - 4,
+    width: (rSize + 4) * 2, height: (rSize + 4) * 2, color: C.border });
+  // Inner fill square (card bg color — creates "ring" illusion)
+  page.drawRectangle({ x: rCX - rSize, y: rCY - rSize,
+    width: rSize * 2, height: rSize * 2, color: C.cardBg });
+  // Thin colored top bar = score indicator
+  const barW = Math.round((score / 100) * rSize * 2);
+  page.drawRectangle({ x: rCX - rSize, y: rCY + rSize - 4,
+    width: barW, height: 4, color: ringColor });
+
   const scoreStr = String(score);
   const scoreW   = bold.widthOfTextAtSize(scoreStr, 14);
-  safeText(page, scoreStr, ringCX - scoreW / 2, ringCY - 4, bold, 14, C.white);
-  const lbl = "SCORE";
-  const lblW = reg.widthOfTextAtSize(lbl, 6);
-  safeText(page, lbl, ringCX - lblW / 2, ringCY - 14, reg, 6, C.greyDrk);
+  safeText(page, scoreStr, rCX - scoreW / 2, rCY - 4, bold, 14, C.white);
+  const scoreLblW = reg.widthOfTextAtSize("SCORE", 6);
+  safeText(page, "SCORE", rCX - scoreLblW / 2, rCY - 14, reg, 6, C.greyDrk);
 
-  // Bottom chips
+  // Chips
   const chipY = y - CARD_H + 20;
-  const chips = [
+  const chips: [string, string][] = [
     [String(totalVouches), "VOUCHES"],
     [`${workAgainPct}%`,   "ENDORSE"],
     [String(highCredCount), "HIGH CRED"],
@@ -292,7 +263,7 @@ export async function GET(req: NextRequest) {
 
   // ── Bio ────────────────────────────────────────────────────────────────────
   if (profile.bio) {
-    const bioLines = wrapText(profile.bio.slice(0, 200), italic, 8.5, INNER - 8);
+    const bioLines = wrapText(profile.bio.slice(0, 200), italic, 8.5, IW - 8);
     for (const line of bioLines) {
       safeText(page, line, M + 4, y, italic, 8.5, C.greyMid);
       y -= 13;
@@ -304,63 +275,72 @@ export async function GET(req: NextRequest) {
   const sectionText = `VERIFIED VOUCHES  (${totalVouches})`;
   safeText(page, sectionText, M, y, reg, 6, C.greyDrk);
   const sepX = M + reg.widthOfTextAtSize(sectionText, 6) + 8;
-  page.drawLine({ start: { x: sepX, y: y + 2 }, end: { x: PAGE_W - M, y: y + 2 },
+  page.drawLine({ start: { x: sepX, y: y + 2 }, end: { x: PW - M, y: y + 2 },
     color: C.border, thickness: 0.4 });
   y -= 14;
 
-  // ── Vouches ────────────────────────────────────────────────────────────────
-  function avgRating(v: any) {
-    const vals = [v.rating_reliability, v.rating_communication,
-                  v.rating_teamwork, v.rating_work_again].filter(Boolean);
-    return vals.length ? Math.round((vals.reduce((a: number, b: number) => a + b, 0) / vals.length) * 10) / 10 : 0;
+  // ── Vouch helpers ──────────────────────────────────────────────────────────
+  function avgRating(v: any): number {
+    const vals = [
+      v.rating_reliability, v.rating_communication,
+      v.rating_teamwork, v.rating_work_again,
+    ].filter((x: any) => typeof x === "number" && x > 0) as number[];
+    return vals.length
+      ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10
+      : 0;
   }
 
-  function drawVouch(v: any, startY: number, p: any): number {
+  let currentPage = page;
+
+  function drawVouch(v: any, startY: number, p: PDFPage): number {
     const vtype   = v.vouch_types ?? {};
     const giver   = v.giver ?? {};
-    const rtype   = v.relationship_type ?? "";
-    const rdur    = v.relationship_duration ?? "";
-    const collab  = v.collaboration_context ?? "";
-    const weight  = Math.min(Math.max(v.credibility_weight ?? 1, 1), 5);
-    const comment = v.comment ?? "";
-    const avg     = avgRating(v);
+    const rtype   = (v.relationship_type ?? "") as string;
+    const rdur    = (v.relationship_duration ?? "") as string;
+    const collab  = (v.collaboration_context ?? "") as string;
+    const weight  = Math.min(Math.max(Number(v.credibility_weight ?? 1), 1), 5);
+    const comment = (v.comment ?? "") as string;
+    const avgVal  = avgRating(v);
 
-    // Estimate height
     const commentLines = comment
-      ? wrapText(`"${comment}"`, italic, 8, INNER - 20).length
-      : 0;
+      ? wrapText(`"${comment}"`, italic, 8, IW - 20).length : 0;
     const estH = 70 + commentLines * 13 + (collab ? 18 : 0);
 
     // Page break
     if (startY - estH < M + 20) {
       p = addPage();
-      startY = PAGE_H - M - 10;
+      currentPage = p;
+      startY = PH - M - 10;
     }
 
-    // Card box
-    p.drawRectangle({ x: M, y: startY - estH, width: INNER, height: estH, color: C.cardBg });
-    p.drawRectangle({ x: M, y: startY - estH, width: INNER, height: estH,
-      borderColor: C.border, borderWidth: 0.4, opacity: 0 });
+    // Card fill
+    p.drawRectangle({ x: M, y: startY - estH, width: IW, height: estH, color: C.cardBg });
+    // Card border as lines
+    const cx2 = M, cy2 = startY - estH;
+    p.drawLine({ start: { x: cx2,      y: cy2       }, end: { x: cx2 + IW, y: cy2       }, color: C.border, thickness: 0.4 });
+    p.drawLine({ start: { x: cx2,      y: cy2 + estH}, end: { x: cx2 + IW, y: cy2 + estH}, color: C.border, thickness: 0.4 });
+    p.drawLine({ start: { x: cx2,      y: cy2       }, end: { x: cx2,      y: cy2 + estH}, color: C.border, thickness: 0.4 });
+    p.drawLine({ start: { x: cx2 + IW, y: cy2       }, end: { x: cx2 + IW, y: cy2 + estH}, color: C.border, thickness: 0.4 });
 
     const ix = M + 14;
     let iy   = startY - 18;
 
-    // Vouch type
+    // Vouch type name
     safeText(p, vtype.name ?? "Vouch", ix, iy, bold, 9, C.white);
 
     // Average score
-    const avgStr = String(avg);
+    const avgStr = String(avgVal);
     const avgW   = bold.widthOfTextAtSize(avgStr, 11);
-    safeText(p, avgStr, PAGE_W - M - 14 - avgW, iy, bold, 11, C.purple);
+    safeText(p, avgStr, PW - M - 14 - avgW, iy, bold, 11, C.purple);
 
     // Credibility badge
     const credLbl = CREDIBILITY_LABELS[weight] ?? "Known";
     const badgeW  = reg.widthOfTextAtSize(credLbl.toUpperCase(), 5.5) + 8;
-    const badgeX  = PAGE_W - M - 14 - avgW - 6 - badgeW;
-    const badgeBg = C.badgeBg[weight] ?? C.badgeBg[1];
-    const badgeFg = C.badgeFg[weight] ?? C.badgeFg[1];
-    p.drawRectangle({ x: badgeX, y: iy - 2, width: badgeW, height: 13, color: badgeBg });
-    safeText(p, credLbl.toUpperCase(), badgeX + 4, iy + 1, reg, 5.5, badgeFg);
+    const badgeX  = PW - M - 14 - avgW - 6 - badgeW;
+    const bgColor = C.badgeBg[weight] ?? C.badgeBg[1];
+    const fgColor = C.badgeFg[weight] ?? C.badgeFg[1];
+    p.drawRectangle({ x: badgeX, y: iy - 2, width: badgeW, height: 13, color: bgColor });
+    safeText(p, credLbl.toUpperCase(), badgeX + 4, iy + 1, reg, 5.5, fgColor);
 
     iy -= 16;
 
@@ -368,11 +348,11 @@ export async function GET(req: NextRequest) {
     const relParts: string[] = [];
     if (rtype && RELATIONSHIP_LABELS[rtype]) relParts.push(RELATIONSHIP_LABELS[rtype]);
     if (rdur  && DURATION_LABELS[rdur])      relParts.push(DURATION_LABELS[rdur]);
-    if (giver.full_name) relParts.push(giver.full_name);
+    if (giver.full_name) relParts.push(String(giver.full_name));
     if (giver.username)  relParts.push(`@${giver.username}`);
     if (relParts.length) {
       let relStr = relParts.join("  .  ");
-      while (reg.widthOfTextAtSize(relStr, 7.5) > INNER - 28 && relStr.includes("  .  ")) {
+      while (reg.widthOfTextAtSize(relStr, 7.5) > IW - 28 && relStr.includes("  .  ")) {
         relStr = relStr.split("  .  ").slice(0, -1).join("  .  ") + "...";
       }
       safeText(p, relStr, ix, iy, reg, 7.5, C.greyMid);
@@ -382,14 +362,14 @@ export async function GET(req: NextRequest) {
     // Collaboration context
     if (collab) {
       const collabStr = collab.slice(0, 90) + (collab.length > 90 ? "..." : "");
-      p.drawRectangle({ x: ix, y: iy - 14, width: INNER - 28, height: 16, color: hex("#1a1a2e") });
+      p.drawRectangle({ x: ix, y: iy - 14, width: IW - 28, height: 16, color: C.dark2 });
       safeText(p, collabStr, ix + 6, iy - 8, reg, 7, C.greyMid);
       iy -= 20;
     }
 
     // Comment
     if (comment) {
-      const lines = wrapText(`"${comment}"`, italic, 8, INNER - 28);
+      const lines = wrapText(`"${comment}"`, italic, 8, IW - 28);
       for (const line of lines) {
         safeText(p, line, ix, iy, italic, 8, C.greyMid);
         iy -= 13;
@@ -399,66 +379,62 @@ export async function GET(req: NextRequest) {
 
     iy -= 6;
 
-    // Rating bars (2 col)
-    const barData = [
-      ["Reliability",   v.rating_reliability],
-      ["Communication", v.rating_communication],
-      ["Teamwork",      v.rating_teamwork],
-      ["Work Again",    v.rating_work_again],
-    ].filter(([, val]) => val);
+    // Rating bars (2 columns)
+    const barData: [string, number][] = (
+      [
+        ["Reliability",   v.rating_reliability],
+        ["Communication", v.rating_communication],
+        ["Teamwork",      v.rating_teamwork],
+        ["Work Again",    v.rating_work_again],
+      ] as [string, number][]
+    ).filter(([, val]) => typeof val === "number" && val > 0);
 
-    const colW = (INNER - 28) / 2;
-    barData.forEach(([lbl, val], i) => {
+    const colW = (IW - 28) / 2;
+    barData.forEach(([barLbl, val], i) => {
       const bx = ix + (i % 2) * colW;
       const by = iy - Math.floor(i / 2) * 14;
-      safeText(p, String(lbl).toUpperCase(), bx, by, reg, 6, C.greyDrk);
+      safeText(p, barLbl.toUpperCase(), bx, by, reg, 6, C.greyDrk);
       const BAR_W = 55;
-      p.drawRectangle({ x: bx + 62, y: by - 1, width: BAR_W, height: 3, color: C.border });
-      p.drawRectangle({ x: bx + 62, y: by - 1, width: BAR_W * ((val as number) / 5), height: 3, color: C.purple });
+      p.drawRectangle({ x: bx + 62, y: by - 1, width: BAR_W,           height: 3, color: C.border });
+      p.drawRectangle({ x: bx + 62, y: by - 1, width: BAR_W * (val / 5), height: 3, color: C.purple });
       safeText(p, `${val}/5`, bx + 120, by, reg, 6, C.greyMid);
     });
 
-    const usedRows = Math.ceil(barData.length / 2);
-    currentPage = p;
     return startY - estH - 10;
   }
 
-  let currentPage = page;
-
+  // ── Render vouches ─────────────────────────────────────────────────────────
   if (vouches && vouches.length > 0) {
     for (const v of vouches) {
       y = drawVouch(v, y, currentPage);
     }
   } else {
-    page.drawRectangle({ x: M, y: y - 40, width: INNER, height: 40, color: C.cardBg });
-    const msg = `No vouches found for the '${ctxLabel}' context.`;
+    page.drawRectangle({ x: M, y: y - 40, width: IW, height: 40, color: C.cardBg });
+    const msg  = `No vouches found for the '${ctxLabel}' context.`;
     const msgW = reg.widthOfTextAtSize(msg, 8);
-    safeText(page, msg, PAGE_W / 2 - msgW / 2, y - 22, reg, 8, C.greyDrk);
+    safeText(page, msg, PW / 2 - msgW / 2, y - 22, reg, 8, C.greyDrk);
     y -= 50;
   }
 
-  // ── Footer on last page ────────────────────────────────────────────────────
+  // ── Footer ─────────────────────────────────────────────────────────────────
   const fp = currentPage;
-  fp.drawLine({
-    start: { x: M, y: M + 18 }, end: { x: PAGE_W - M, y: M + 18 },
-    color: C.border, thickness: 0.4,
-  });
+  fp.drawLine({ start: { x: M, y: M + 18 }, end: { x: PW - M, y: M + 18 },
+    color: C.border, thickness: 0.4 });
+
   const profileUrl = `trustcard.app/u/${profile.username}`;
   safeText(fp, profileUrl, M, M + 6, reg, 6.5, C.greyDrk);
-  safeText(fp, "Verify live at:", PAGE_W - M - 120, M + 6, reg, 6.5, C.greyDrk);
+  safeText(fp, "Verify live at:", PW - M - 120, M + 6, reg, 6.5, C.greyDrk);
 
-  // QR placeholder box
-  fp.drawRectangle({ x: PAGE_W - M - 36, y: M - 28, width: 36, height: 36, color: C.white });
+  // QR placeholder
+  fp.drawRectangle({ x: PW - M - 36, y: M - 28, width: 36, height: 36, color: C.white });
   const urlW = reg.widthOfTextAtSize(profileUrl, 3.5);
-  safeText(fp, profileUrl, PAGE_W - M - 36 + 18 - urlW / 2, M - 12, reg, 3.5, C.black);
+  safeText(fp, profileUrl, PW - M - 36 + 18 - urlW / 2, M - 12, reg, 3.5, C.black);
 
-  // ── Serialize ──────────────────────────────────────────────────────────────
+  // ── Serialize & return ─────────────────────────────────────────────────────
   const pdfBytes = await pdfDoc.save();
   const ctxSlug  = ctxLabel.toLowerCase().replace(/\s+/g, "-");
   const filename = `trustcard-${profile.username}-${ctxSlug}.pdf`;
 
-  // Copy into a plain ArrayBuffer — avoids Uint8Array<ArrayBufferLike> BodyInit
-  // type error that appears in some TS/Next.js version combinations
   const arrayBuffer = pdfBytes.buffer.slice(
     pdfBytes.byteOffset,
     pdfBytes.byteOffset + pdfBytes.byteLength
