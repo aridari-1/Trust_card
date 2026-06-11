@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { motion, useMotionValue, useSpring, AnimatePresence } from "framer-motion";
 
-// ─── Floating vouch tiles ─────────────────────────────────────────────────────
+// ─── Data ─────────────────────────────────────────────────────────────────────
 const VOUCHES = [
   { icon: "💼", label: "Work Ethic",  name: "Sarah K.", role: "Former Manager"  },
   { icon: "🏠", label: "Reliability", name: "James T.", role: "Past Roommate"   },
@@ -15,18 +15,18 @@ const VOUCHES = [
 ];
 
 const VOUCH_TILES_DEMO = [
-  { icon: "🎓", label: "Professor vouch",  who: "Dr. Chen · 1 year"          },
-  { icon: "💼", label: "Manager vouch",    who: "Stripe internship · 6 months"},
-  { icon: "🏠", label: "Roommate vouch",   who: "James T. · 1 year"           },
+  { icon: "🎓", label: "Professor vouch",  who: "Dr. Chen · 1 year"           },
+  { icon: "💼", label: "Manager vouch",    who: "Stripe internship · 6 months" },
+  { icon: "🏠", label: "Roommate vouch",   who: "James T. · 1 year"            },
 ];
 
 const REL_OPTIONS = [
-  { value: "professor",    label: "🎓 Professor", high: true  },
-  { value: "manager",      label: "💼 Manager",   high: true  },
-  { value: "classmate",    label: "📚 Classmate", high: false },
-  { value: "roommate",     label: "🏠 Roommate",  high: false },
+  { value: "professor",    label: "🎓 Professor",    high: true  },
+  { value: "manager",      label: "💼 Manager",      high: true  },
+  { value: "classmate",    label: "📚 Classmate",    high: false },
+  { value: "roommate",     label: "🏠 Roommate",     high: false },
   { value: "collaborator", label: "🔧 Collaborator", high: false },
-  { value: "mentor",       label: "⭐ Mentor",    high: true  },
+  { value: "mentor",       label: "⭐ Mentor",       high: true  },
 ];
 
 const DUR_OPTIONS = [
@@ -43,12 +43,11 @@ const DEMO_VOUCHES = [
     meta: "Professor · ~1 year · Dr. Chen @drchen",
     ctx:  "Senior Capstone Project · NYU · Spring 2024",
     comment: "Alex delivered every milestone on time and elevated the work of everyone around him.",
-    badge: "High authority", badgeCls: "high",
-    avg: 4.8,
+    badge: "High authority", badgeCls: "high", avg: 4.8,
     bars: [
-      { label: "Reliability",   w: 100, val: 5 },
-      { label: "Teamwork",      w: 100, val: 5 },
-      { label: "Work again",    w: 100, val: 5 },
+      { label: "Reliability", w: 100, val: 5 },
+      { label: "Teamwork",    w: 100, val: 5 },
+      { label: "Work again",  w: 100, val: 5 },
     ],
   },
   {
@@ -56,12 +55,11 @@ const DEMO_VOUCHES = [
     meta: "Manager · ~6 months · Sarah K. @sarahk",
     ctx:  "Summer Internship · Stripe · 2023",
     comment: "Proactive, clear communicator, and never needed to be asked twice.",
-    badge: "Strong", badgeCls: "strong",
-    avg: 4.7,
+    badge: "Strong", badgeCls: "strong", avg: 4.7,
     bars: [
-      { label: "Reliability",    w: 100, val: 5 },
-      { label: "Communication",  w: 80,  val: 4 },
-      { label: "Work again",     w: 100, val: 5 },
+      { label: "Reliability",   w: 100, val: 5 },
+      { label: "Communication", w: 80,  val: 4 },
+      { label: "Work again",    w: 100, val: 5 },
     ],
   },
   {
@@ -69,8 +67,7 @@ const DEMO_VOUCHES = [
     meta: "Roommate · ~1 year · James T. @jamest",
     ctx:  null,
     comment: "Paid rent on time every month, kept shared spaces clean, easy to communicate with.",
-    badge: "Established", badgeCls: "estab",
-    avg: 4.5,
+    badge: "Established", badgeCls: "estab", avg: 4.5,
     bars: [
       { label: "Reliability",   w: 100, val: 5 },
       { label: "Communication", w: 80,  val: 4 },
@@ -78,6 +75,8 @@ const DEMO_VOUCHES = [
     ],
   },
 ];
+
+const TILE_DURATIONS = [4, 5, 4.5, 5.5, 4.2, 5.2];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function computeWeightLabel(rel: string | null, dur: string | null): string | null {
@@ -91,11 +90,12 @@ function computeWeightLabel(rel: string | null, dur: string | null): string | nu
   return "Standard weight in trust score";
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
-function VouchTile({ vouch, style, delay }: {
+// ─── VouchTile — desktop only ─────────────────────────────────────────────────
+function VouchTile({ vouch, style, delay, duration }: {
   vouch: (typeof VOUCHES)[0];
   style: React.CSSProperties;
   delay: number;
+  duration: number;
 }) {
   return (
     <motion.div
@@ -106,7 +106,7 @@ function VouchTile({ vouch, style, delay }: {
       animate={{ opacity: 1, y: [0, -10, 0] }}
       transition={{
         opacity: { delay, duration: 0.6 },
-        y: { delay, duration: 4 + Math.random() * 2, repeat: Infinity, ease: "easeInOut" },
+        y: { delay, duration, repeat: Infinity, ease: "easeInOut" },
       }}
     >
       <span className="text-2xl">{vouch.icon}</span>
@@ -119,9 +119,10 @@ function VouchTile({ vouch, style, delay }: {
   );
 }
 
+// ─── CursorGlow — desktop only, no SSR issues ─────────────────────────────────
 function CursorGlow() {
-  const x = useMotionValue(0);
-  const y = useMotionValue(0);
+  const x  = useMotionValue(-9999);
+  const y  = useMotionValue(-9999);
   const sx = useSpring(x, { stiffness: 80, damping: 20 });
   const sy = useSpring(y, { stiffness: 80, damping: 20 });
   useEffect(() => {
@@ -130,13 +131,22 @@ function CursorGlow() {
     return () => window.removeEventListener("mousemove", move);
   }, [x, y]);
   return (
-    <motion.div
-      className="pointer-events-none fixed inset-0 z-0"
-      style={{ background: `radial-gradient(600px circle at ${sx.get()}px ${sy.get()}px, rgba(139,92,246,0.08), transparent 70%)` }}
-    />
+    <motion.div className="pointer-events-none fixed inset-0 z-0 hidden lg:block">
+      <motion.div
+        className="pointer-events-none fixed z-0"
+        style={{
+          left: sx, top: sy,
+          width: 600, height: 600,
+          marginLeft: -300, marginTop: -300,
+          borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(139,92,246,0.08) 0%, transparent 70%)",
+        }}
+      />
+    </motion.div>
   );
 }
 
+// ─── TrustRing ────────────────────────────────────────────────────────────────
 function TrustRing() {
   const [score, setScore] = useState(0);
   useEffect(() => {
@@ -149,26 +159,29 @@ function TrustRing() {
   }, []);
   const r = 36, circ = 2 * Math.PI * r;
   return (
-    <div className="relative w-24 h-24 mx-auto mb-6">
+    <div className="relative w-20 h-20 mx-auto mb-5">
       <svg className="w-full h-full -rotate-90" viewBox="0 0 88 88">
         <circle cx="44" cy="44" r={r} strokeWidth="6" className="stroke-white/10 fill-none" />
-        <circle cx="44" cy="44" r={r} strokeWidth="6" fill="none" stroke="url(#rg)" strokeLinecap="round"
-          strokeDasharray={circ} strokeDashoffset={circ - (score / 100) * circ}
+        <circle cx="44" cy="44" r={r} strokeWidth="6" fill="none" stroke="url(#rg)"
+          strokeLinecap="round" strokeDasharray={circ}
+          strokeDashoffset={circ - (score / 100) * circ}
           style={{ transition: "stroke-dashoffset 0.05s linear" }} />
         <defs>
           <linearGradient id="rg" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#8b5cf6" /><stop offset="100%" stopColor="#06b6d4" />
+            <stop offset="0%" stopColor="#8b5cf6" />
+            <stop offset="100%" stopColor="#06b6d4" />
           </linearGradient>
         </defs>
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-xl font-bold text-white">{score}</span>
-        <span className="text-[10px] text-gray-400">Trust</span>
+        <span className="text-lg font-bold text-white">{score}</span>
+        <span className="text-[9px] text-gray-400 uppercase tracking-wide">Trust</span>
       </div>
     </div>
   );
 }
 
+// ─── Counter ──────────────────────────────────────────────────────────────────
 function Counter({ to, suffix = "" }: { to: number; suffix?: string }) {
   const [val, setVal] = useState(0);
   const ref = useRef<HTMLSpanElement>(null);
@@ -188,18 +201,15 @@ function Counter({ to, suffix = "" }: { to: number; suffix?: string }) {
 
 // ─── Demo Modal ───────────────────────────────────────────────────────────────
 function DemoModal({ onClose }: { onClose: () => void }) {
-  const [step, setStep] = useState(0);
-  const [selRel, setSelRel] = useState<string | null>(null);
-  const [selDur, setSelDur] = useState<string | null>(null);
-  const [barsReady, setBarsReady] = useState(false);
+  const [step, setStep]             = useState(0);
+  const [selRel, setSelRel]         = useState<string | null>(null);
+  const [selDur, setSelDur]         = useState<string | null>(null);
+  const [barsReady, setBarsReady]   = useState(false);
   const [scoreCount, setScoreCount] = useState(66);
-
   const STEPS = 4;
 
   useEffect(() => {
-    if (step === 2) {
-      setTimeout(() => setBarsReady(true), 300);
-    }
+    if (step === 2) { setTimeout(() => setBarsReady(true), 300); }
     if (step === 3) {
       let s = 66;
       const iv = setInterval(() => { s++; setScoreCount(s); if (s >= 78) clearInterval(iv); }, 40);
@@ -207,7 +217,6 @@ function DemoModal({ onClose }: { onClose: () => void }) {
     }
   }, [step]);
 
-  // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", handler);
@@ -215,9 +224,7 @@ function DemoModal({ onClose }: { onClose: () => void }) {
   }, [onClose]);
 
   const weightLabel = computeWeightLabel(selRel, selDur);
-
-  const STEP_LABELS = ["Landing page", "Request a vouch", "Public TrustCard", "Trust score updated"];
-
+  const STEP_LABELS = ["Overview", "Request vouch", "Public card", "Score updated"];
   const badgeStyle: Record<string, string> = {
     high:   "text-emerald-300 border-emerald-400/30",
     strong: "text-cyan-300 border-cyan-400/30",
@@ -226,116 +233,95 @@ function DemoModal({ onClose }: { onClose: () => void }) {
 
   return (
     <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-0 sm:px-4"
       style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(8px)" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 16 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 16 }}
+        initial={{ opacity: 0, y: 40 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 40 }}
         transition={{ type: "spring", stiffness: 280, damping: 26 }}
-        className="w-full max-w-md bg-[#0a0a0f] border border-white/10 rounded-2xl
-                   overflow-hidden shadow-2xl"
-        style={{ maxHeight: "90vh", overflowY: "auto" }}
+        className="w-full sm:max-w-md bg-[#0a0a0f] border border-white/10
+                   rounded-t-3xl sm:rounded-2xl overflow-hidden shadow-2xl"
+        style={{ maxHeight: "92vh", overflowY: "auto" }}
       >
-        {/* Progress bar */}
+        {/* Progress */}
         <div className="flex gap-1.5 px-5 pt-5">
           {Array.from({ length: STEPS }).map((_, i) => (
             <div key={i} className="flex-1 h-0.5 rounded-full bg-white/10 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-purple-500 to-cyan-400
-                           transition-all duration-500"
-                style={{ width: i < step ? "100%" : i === step ? "50%" : "0%" }}
-              />
+              <div className="h-full rounded-full bg-gradient-to-r from-purple-500 to-cyan-400
+                             transition-all duration-500"
+                style={{ width: i < step ? "100%" : i === step ? "50%" : "0%" }} />
             </div>
           ))}
         </div>
 
-        {/* Top bar */}
+        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4">
           <div className="flex items-center gap-2">
             <div className="w-5 h-5 rounded-full bg-gradient-to-br from-purple-500 to-cyan-400" />
-            <span className="text-[10px] font-semibold tracking-widest uppercase text-white/40">
-              TrustCard
-            </span>
+            <span className="text-[10px] font-semibold tracking-widest uppercase text-white/40">TrustCard</span>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-[10px] text-white/20 uppercase tracking-widest">
+            <span className="text-[10px] text-white/20 uppercase tracking-widest hidden sm:block">
               {String(step + 1).padStart(2, "0")} / {String(STEPS).padStart(2, "0")} — {STEP_LABELS[step]}
             </span>
             <button onClick={onClose}
-              className="text-white/25 hover:text-white/60 transition-colors text-lg leading-none">
+              className="w-8 h-8 flex items-center justify-center rounded-full
+                         bg-white/5 text-white/40 hover:text-white transition-colors text-lg">
               ×
             </button>
           </div>
         </div>
 
-        {/* ── Step content ── */}
+        {/* Content */}
         <AnimatePresence mode="wait">
-          <motion.div
-            key={step}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.25 }}
-            className="px-5 pb-5"
-          >
+          <motion.div key={step}
+            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.25 }}
+            className="px-5 pb-3">
 
-            {/* Step 0 — Landing */}
+            {/* Step 0 */}
             {step === 0 && (
               <div>
-                <h2 className="text-2xl font-bold text-white leading-tight mb-2">
-                  Your reputation starts<br />
-                  <span className="bg-gradient-to-r from-purple-400 to-cyan-400
-                                   bg-clip-text text-transparent">
-                    before your résumé.
-                  </span>
+                <h2 className="text-xl font-bold text-white leading-tight mb-2">
+                  Your reputation starts before your résumé.
                 </h2>
-                <p className="text-sm text-white/35 leading-relaxed mb-5">
-                  Collect verified vouches from classmates, professors, and managers —
+                <p className="text-sm text-white/35 leading-relaxed mb-4">
+                  Collect verified vouches from professors, managers, and teammates —
                   then share one link that proves who you are.
                 </p>
                 <div className="flex flex-col gap-2">
                   {VOUCH_TILES_DEMO.map((t, i) => (
-                    <motion.div
-                      key={i}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
+                    <motion.div key={i}
+                      initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: 0.2 + i * 0.15 }}
-                      className="flex items-center gap-3 bg-white/4 border border-white/8
-                                 rounded-xl px-4 py-3"
-                    >
+                      className="flex items-center gap-3 bg-white/[0.04] border border-white/[0.08]
+                                 rounded-xl px-4 py-3">
                       <span className="text-lg">{t.icon}</span>
                       <div className="flex-1">
                         <p className="text-xs font-medium text-white/80">{t.label}</p>
                         <p className="text-[11px] text-white/35">{t.who}</p>
                       </div>
-                      <span className="text-[10px] text-green-400 font-semibold">✓ Verified</span>
+                      <span className="text-[10px] text-green-400 font-semibold">✓</span>
                     </motion.div>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Step 1 — Request vouch */}
+            {/* Step 1 */}
             {step === 1 && (
               <div>
-                <p className="text-xs text-white/30 uppercase tracking-widest mb-4">
-                  Requesting a vouch
-                </p>
-                <div className="bg-white/[0.03] border border-white/8 rounded-xl p-4">
-                  <p className="text-[10px] text-white/30 uppercase tracking-wider mb-3">
-                    How do they know you?
-                  </p>
-                  <div className="flex flex-wrap gap-2 mb-4">
+                <p className="text-xs text-white/30 uppercase tracking-widest mb-3">Requesting a vouch</p>
+                <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-4">
+                  <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">How do they know you?</p>
+                  <div className="flex flex-wrap gap-1.5 mb-3">
                     {REL_OPTIONS.map((r) => (
                       <button key={r.value} onClick={() => setSelRel(r.value)}
-                        className={`px-3 py-2 rounded-xl border text-xs font-medium
-                          transition-all duration-200
+                        className={`px-3 py-2 rounded-xl border text-xs font-medium transition-all duration-200
                           ${selRel === r.value
                             ? "border-purple-500 bg-purple-500/20 text-purple-200"
                             : "border-white/10 bg-white/5 text-white/40 hover:border-white/20 hover:text-white/70"
@@ -344,9 +330,7 @@ function DemoModal({ onClose }: { onClose: () => void }) {
                       </button>
                     ))}
                   </div>
-                  <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">
-                    How long?
-                  </p>
+                  <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">How long?</p>
                   <div className="flex flex-col gap-1.5 mb-3">
                     {DUR_OPTIONS.map((d) => (
                       <button key={d.value} onClick={() => setSelDur(d.value)}
@@ -361,12 +345,9 @@ function DemoModal({ onClose }: { onClose: () => void }) {
                     ))}
                   </div>
                   {weightLabel && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 4 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="px-3 py-2.5 bg-purple-500/8 border border-purple-500/20
-                                 rounded-lg text-[11px] text-purple-300"
-                    >
+                    <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
+                      className="px-3 py-2.5 bg-purple-500/[0.08] border border-purple-500/20
+                                 rounded-lg text-[11px] text-purple-300">
                       {weightLabel}
                     </motion.div>
                   )}
@@ -374,46 +355,37 @@ function DemoModal({ onClose }: { onClose: () => void }) {
               </div>
             )}
 
-            {/* Step 2 — Public card */}
+            {/* Step 2 */}
             {step === 2 && (
               <div>
-                <p className="text-xs text-white/30 uppercase tracking-widest mb-3">
-                  Public TrustCard
-                </p>
-
-                {/* Identity card */}
-                <div
-                  className="rounded-2xl p-5 mb-4 relative overflow-hidden"
+                <p className="text-xs text-white/30 uppercase tracking-widest mb-3">Public TrustCard</p>
+                <div className="rounded-2xl p-4 mb-3 relative overflow-hidden"
                   style={{
-                    background: "linear-gradient(135deg, #0f0f0f 0%, #1a1a2e 50%, #0f0f0f 100%)",
-                    boxShadow: "0 0 0 1px rgba(255,255,255,0.08), 0 0 40px rgba(168,85,247,0.12)",
-                  }}
-                >
-                  {/* Shimmer */}
+                    background: "linear-gradient(135deg,#0f0f0f 0%,#1a1a2e 50%,#0f0f0f 100%)",
+                    boxShadow: "0 0 0 1px rgba(255,255,255,0.08),0 0 40px rgba(168,85,247,0.12)",
+                  }}>
                   <div className="absolute inset-0 rounded-2xl pointer-events-none"
                     style={{ background: "repeating-linear-gradient(60deg,transparent,transparent 40px,rgba(255,255,255,0.015) 40px,rgba(255,255,255,0.015) 41px)" }} />
-                  <div className="relative flex justify-between items-start mb-4">
+                  <div className="relative flex justify-between items-start mb-3">
                     <div className="flex items-center gap-1.5">
-                      <div className="w-5 h-5 rounded-full bg-gradient-to-br from-purple-500 to-cyan-400" />
+                      <div className="w-4 h-4 rounded-full bg-gradient-to-br from-purple-500 to-cyan-400" />
                       <span className="text-[9px] tracking-widest uppercase text-white/35">TrustCard</span>
                     </div>
-                    <div className="w-8 h-6 rounded border border-white/10 opacity-40"
+                    <div className="w-7 h-5 rounded border border-white/10 opacity-40"
                       style={{ background: "linear-gradient(135deg,rgba(255,215,0,0.25),rgba(255,215,0,0.08))" }} />
                   </div>
-                  <div className="relative flex justify-between items-end mb-4">
-                    <div>
-                      <p className="text-lg font-bold text-white">Alex Rivera</p>
-                      <p className="text-[9px] tracking-widest uppercase text-white/30 mt-0.5">@alexrivera</p>
-                      <p className="text-[11px] text-white/40 mt-1.5">Computer Science · NYU</p>
+                  <div className="relative flex justify-between items-center mb-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-base font-bold text-white">Alex Rivera</p>
+                      <p className="text-[9px] tracking-widest uppercase text-white/30">@alexrivera</p>
+                      <p className="text-[10px] text-white/40 mt-1">Computer Science · NYU</p>
                     </div>
-                    {/* Score ring */}
-                    <div className="relative w-12 h-12">
+                    <div className="relative w-10 h-10 shrink-0 ml-3">
                       <svg className="-rotate-90 w-full h-full" viewBox="0 0 48 48">
                         <circle cx="24" cy="24" r="20" strokeWidth="3.5" fill="none" className="stroke-white/10" />
                         <circle cx="24" cy="24" r="20" strokeWidth="3.5" fill="none"
                           stroke="url(#cr)" strokeLinecap="round"
-                          strokeDasharray="125.7"
-                          strokeDashoffset="27.7" />
+                          strokeDasharray="125.7" strokeDashoffset="27.7" />
                         <defs>
                           <linearGradient id="cr" x1="0%" y1="0%" x2="100%" y2="0%">
                             <stop offset="0%" stopColor="#a78bfa" /><stop offset="100%" stopColor="#22d3ee" />
@@ -421,77 +393,74 @@ function DemoModal({ onClose }: { onClose: () => void }) {
                         </defs>
                       </svg>
                       <div className="absolute inset-0 flex flex-col items-center justify-center">
-                        <span className="text-xs font-bold text-white leading-none">78</span>
-                        <span className="text-[7px] text-white/30 uppercase tracking-wide">score</span>
+                        <span className="text-[11px] font-bold text-white leading-none">78</span>
+                        <span className="text-[6px] text-white/30 uppercase tracking-wide">score</span>
                       </div>
                     </div>
                   </div>
-                  <div className="relative grid grid-cols-3 gap-4 pt-3 border-t border-white/[0.07]">
-                    {[["Vouches","3"],["Endorse","100%"],["Since","Oct 2024"]].map(([l,v]) => (
+                  <div className="relative grid grid-cols-3 gap-2 pt-3 border-t border-white/[0.07]">
+                    {[["Vouches","3"],["Endorse","100%"],["Since","Oct '24"]].map(([l,v]) => (
                       <div key={l}>
                         <p className="text-[8px] uppercase tracking-widest text-white/25">{l}</p>
-                        <p className="text-xs font-semibold text-white mt-0.5">{v}</p>
+                        <p className="text-[11px] font-semibold text-white mt-0.5">{v}</p>
                       </div>
                     ))}
                   </div>
                 </div>
 
-                {/* Vouch cards */}
-                <div className="flex flex-col gap-2.5">
+                <div className="flex flex-col gap-2">
                   {DEMO_VOUCHES.map((v, i) => (
-                    <motion.div
-                      key={i}
+                    <motion.div key={i}
                       initial={{ opacity: 0, y: 6 }}
                       animate={{ opacity: barsReady ? 1 : 0, y: barsReady ? 0 : 6 }}
                       transition={{ delay: i * 0.15 }}
-                      className="rounded-xl border border-white/[0.07] p-4"
-                      style={{ background: "linear-gradient(135deg,rgba(255,255,255,0.025),rgba(255,255,255,0.01))" }}
-                    >
-                      <div className="flex items-start justify-between gap-3 mb-3">
-                        <div className="flex items-start gap-2.5">
-                          <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10
+                      className="rounded-xl border border-white/[0.07] p-3"
+                      style={{ background: "linear-gradient(135deg,rgba(255,255,255,0.025),rgba(255,255,255,0.01))" }}>
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-start gap-2 min-w-0">
+                          <div className="w-7 h-7 rounded-lg bg-white/5 border border-white/10
                                           flex items-center justify-center text-sm shrink-0">
                             {v.icon}
                           </div>
-                          <div>
-                            <p className="text-xs font-semibold text-white/85">{v.type}</p>
-                            <p className="text-[10px] text-white/35 mt-0.5">{v.meta}</p>
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-white/85 truncate">{v.type}</p>
+                            <p className="text-[9px] text-white/35 truncate">{v.meta}</p>
                           </div>
                         </div>
-                        <div className="flex flex-col items-end gap-1 shrink-0">
-                          <span className="text-sm font-bold"
+                        <div className="flex flex-col items-end gap-0.5 shrink-0">
+                          <span className="text-xs font-bold"
                             style={{ background: "linear-gradient(90deg,#a78bfa,#22d3ee)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
                             {v.avg}
                           </span>
-                          <span className={`text-[9px] uppercase tracking-widest px-2 py-0.5
+                          <span className={`text-[8px] uppercase tracking-widest px-1.5 py-0.5
                                            rounded-full border font-medium ${badgeStyle[v.badgeCls]}`}>
                             {v.badge}
                           </span>
                         </div>
                       </div>
                       {v.ctx && (
-                        <div className="mb-2.5 px-2.5 py-2 rounded-lg bg-white/[0.035]
-                                        border border-white/[0.07] text-[10px] text-white/40">
-                          📋 {v.ctx}
+                        <div className="mb-2 px-2 py-1.5 rounded-lg bg-white/[0.035]
+                                        border border-white/[0.07] text-[9px] text-white/40 truncate">
+                          {v.ctx}
                         </div>
                       )}
-                      <p className="text-[11px] text-white/45 italic leading-relaxed mb-2.5
-                                    border-l border-purple-500/30 pl-2.5">
+                      <p className="text-[10px] text-white/45 italic leading-relaxed mb-2
+                                    border-l border-purple-500/30 pl-2">
                         "{v.comment}"
                       </p>
-                      <div className="flex flex-col gap-1.5">
+                      <div className="flex flex-col gap-1">
                         {v.bars.map((b) => (
-                          <div key={b.label} className="grid items-center gap-2"
-                            style={{ gridTemplateColumns: "80px 1fr 16px" }}>
-                            <span className="text-[9px] uppercase tracking-wider text-white/25 truncate">
+                          <div key={b.label} className="grid items-center gap-1.5"
+                            style={{ gridTemplateColumns: "72px 1fr 14px" }}>
+                            <span className="text-[8px] uppercase tracking-wider text-white/25 truncate">
                               {b.label}
                             </span>
-                            <div className="h-[3px] rounded-full bg-white/8 overflow-hidden">
+                            <div className="h-[2px] rounded-full bg-white/[0.08] overflow-hidden">
                               <div className="h-full rounded-full bg-gradient-to-r from-purple-500 to-cyan-400
                                              transition-all duration-700"
                                 style={{ width: barsReady ? `${b.w}%` : "0%" }} />
                             </div>
-                            <span className="text-[9px] text-white/30 text-right">{b.val}</span>
+                            <span className="text-[8px] text-white/30 text-right">{b.val}</span>
                           </div>
                         ))}
                       </div>
@@ -501,7 +470,7 @@ function DemoModal({ onClose }: { onClose: () => void }) {
               </div>
             )}
 
-            {/* Step 3 — Score update */}
+            {/* Step 3 */}
             {step === 3 && (
               <div className="flex flex-col items-center text-center pt-2">
                 <div className="relative w-24 h-24 mb-4">
@@ -523,22 +492,14 @@ function DemoModal({ onClose }: { onClose: () => void }) {
                     <span className="text-[9px] text-white/30 uppercase tracking-widest">trust score</span>
                   </div>
                 </div>
-
-                <motion.div
-                  initial={{ opacity: 0, y: 4 }}
-                  animate={{ opacity: 1, y: 0 }}
+                <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.5 }}
                   className="inline-flex items-center gap-1.5 bg-emerald-400/10 border
-                             border-emerald-400/25 rounded-full px-3 py-1.5 text-xs
-                             text-emerald-300 mb-5"
-                >
+                             border-emerald-400/25 rounded-full px-3 py-1.5 text-xs text-emerald-300 mb-4">
                   +12 from new professor vouch
                 </motion.div>
-
-                <div className="w-full bg-white/[0.03] border border-white/8 rounded-xl p-4 mb-4">
-                  <p className="text-[10px] text-white/30 uppercase tracking-widest mb-3">
-                    Score breakdown
-                  </p>
+                <div className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl p-4 mb-3">
+                  <p className="text-[10px] text-white/30 uppercase tracking-widest mb-3">Score breakdown</p>
                   {[
                     { label: "Depth",     pct: 82 },
                     { label: "Diversity", pct: 67 },
@@ -547,7 +508,7 @@ function DemoModal({ onClose }: { onClose: () => void }) {
                   ].map((b, i) => (
                     <div key={b.label} className="flex items-center gap-2.5 mb-2 last:mb-0">
                       <span className="text-[11px] text-white/40 w-16 text-left shrink-0">{b.label}</span>
-                      <div className="flex-1 h-[3px] bg-white/8 rounded-full overflow-hidden">
+                      <div className="flex-1 h-[3px] bg-white/[0.08] rounded-full overflow-hidden">
                         <motion.div
                           className="h-full rounded-full bg-gradient-to-r from-purple-500 to-cyan-400"
                           initial={{ width: "0%" }}
@@ -559,18 +520,16 @@ function DemoModal({ onClose }: { onClose: () => void }) {
                     </div>
                   ))}
                 </div>
-
                 <p className="text-xs text-white/25 leading-relaxed">
                   A professor vouch after 1 year carries 4× more weight than a friend vouch.
                 </p>
               </div>
             )}
-
           </motion.div>
         </AnimatePresence>
 
         {/* Nav */}
-        <div className={`flex px-5 pb-5 gap-3 ${step > 0 ? "justify-between" : "justify-end"}`}>
+        <div className={`flex px-5 py-4 gap-3 border-t border-white/5 ${step > 0 ? "justify-between" : "justify-end"}`}>
           {step > 0 && (
             <button onClick={() => setStep(s => s - 1)}
               className="px-5 py-2.5 rounded-xl border border-white/10 bg-white/5
@@ -614,7 +573,7 @@ export default function LandingClient({ ctaHref }: { ctaHref: string }) {
   const ctaLabel   = isLoggedIn ? "Go to Dashboard" : "Build My TrustCard";
 
   return (
-    <main className="relative min-h-screen bg-[#080808] text-white overflow-hidden">
+    <main className="relative min-h-screen bg-[#080808] text-white overflow-x-hidden">
       <CursorGlow />
 
       {/* Background grid */}
@@ -625,76 +584,85 @@ export default function LandingClient({ ctaHref }: { ctaHref: string }) {
       <div className="pointer-events-none absolute inset-0 z-0"
         style={{ background: "radial-gradient(ellipse 80% 50% at 50% -10%,rgba(139,92,246,0.25),transparent)" }} />
 
-      {/* Floating tiles */}
-      {VOUCHES.map((v, i) => (
-        <VouchTile key={i} vouch={v} style={tilePositions[i]} delay={0.4 + i * 0.15} />
-      ))}
+      {/* Floating tiles — desktop only */}
+      <div className="hidden lg:block">
+        {VOUCHES.map((v, i) => (
+          <VouchTile key={i} vouch={v} style={tilePositions[i]}
+            delay={0.4 + i * 0.15} duration={TILE_DURATIONS[i]} />
+        ))}
+      </div>
 
       {/* ── Hero ── */}
       <section className="relative z-10 flex flex-col items-center justify-center
-                          min-h-screen px-6 text-center">
+                          min-h-screen px-5 text-center pt-16 pb-10">
+
+        {/* Badge */}
         <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
           className="inline-flex items-center gap-2 rounded-full border border-purple-500/30
-                     bg-purple-500/10 px-4 py-1.5 text-sm text-purple-300 mb-8">
-          <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+                     bg-purple-500/10 px-3 py-1.5 text-xs text-purple-300 mb-6">
+          <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse shrink-0" />
           Now in early access · 17–29 only
         </motion.div>
 
+        {/* Headline — smaller on mobile so it doesn't wrap weirdly */}
         <motion.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.15, duration: 0.7 }}
-          className="text-5xl md:text-7xl font-bold tracking-tight leading-tight
-                     max-w-4xl bg-gradient-to-b from-white to-white/60
+          className="text-4xl sm:text-5xl md:text-7xl font-bold tracking-tight leading-[1.1]
+                     max-w-3xl bg-gradient-to-b from-white to-white/60
                      bg-clip-text text-transparent">
-          Your reputation starts<br />
+          Your reputation starts
+          <br className="hidden sm:block" />
+          {" "}
           <span className="bg-gradient-to-r from-purple-400 to-cyan-400 bg-clip-text text-transparent">
             before your résumé.
           </span>
         </motion.h1>
 
+        {/* Subheading */}
         <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3, duration: 0.6 }}
-          className="mt-6 text-lg text-gray-400 max-w-xl leading-relaxed">
-          Collect verified vouches from classmates, teammates, professors, and
-          landlords — then share one link that proves who you are.
+          className="mt-5 text-base text-gray-400 max-w-sm leading-relaxed">
+          Collect verified vouches from classmates, professors, and landlords —
+          then share one link that proves who you are.
         </motion.p>
 
+        {/* CTAs — stack on mobile, row on larger screens */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.45, duration: 0.6 }}
-          className="mt-10 flex flex-wrap gap-4 justify-center">
+          className="mt-8 flex flex-col sm:flex-row gap-3 w-full max-w-xs sm:max-w-none sm:w-auto">
           <Link href={ctaHref}
             className="group relative rounded-full bg-white text-black px-7 py-3.5
-                       font-semibold overflow-hidden transition-transform hover:scale-105">
+                       font-semibold text-center overflow-hidden transition-transform hover:scale-105
+                       active:scale-95">
             <span className="relative z-10">{ctaLabel}</span>
             <span className="absolute inset-0 bg-gradient-to-r from-purple-400 to-cyan-400
                              opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
           </Link>
-
-          {/* "See a live example" now opens the demo modal */}
-          <button
-            onClick={() => setShowDemo(true)}
-            className="rounded-full border border-white/15 bg-white/5 backdrop-blur
-                       px-7 py-3.5 font-semibold hover:bg-white/10 transition-colors"
-          >
+          <button onClick={() => setShowDemo(true)}
+            className="rounded-full border border-white/15 bg-white/5
+                       px-7 py-3.5 font-semibold hover:bg-white/10 transition-colors
+                       active:scale-95">
             See a live example →
           </button>
         </motion.div>
 
+        {/* Social proof */}
         <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.7 }}
-          className="mt-6 text-sm text-gray-500">
+          className="mt-5 text-sm text-gray-500">
           Join <span className="text-white font-medium">2,400+</span> people already building their trust profile
         </motion.p>
       </section>
 
       {/* ── Mini card preview ── */}
-      <section className="relative z-10 flex justify-center pb-24 px-6">
+      <section className="relative z-10 flex justify-center pb-20 px-5">
         <motion.div initial={{ opacity: 0, y: 40 }} whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }} transition={{ duration: 0.7 }}
           className="w-full max-w-sm bg-white/5 border border-white/10 rounded-3xl
-                     p-8 backdrop-blur-xl shadow-2xl">
+                     p-6 backdrop-blur-xl shadow-2xl">
           <TrustRing />
-          <div className="text-center mb-6">
-            <p className="font-semibold text-white text-lg">Alex Rivera</p>
+          <div className="text-center mb-5">
+            <p className="font-semibold text-white text-base">Alex Rivera</p>
             <p className="text-sm text-gray-400">Computer Science · NYU</p>
             <p className="text-xs text-purple-300 mt-1 italic">"Building things that matter"</p>
           </div>
@@ -702,39 +670,41 @@ export default function LandingClient({ ctaHref }: { ctaHref: string }) {
             {VOUCHES.slice(0, 3).map((v, i) => (
               <motion.div key={i} initial={{ opacity: 0, x: -10 }} whileInView={{ opacity: 1, x: 0 }}
                 viewport={{ once: true }} transition={{ delay: 0.2 + i * 0.1 }}
-                className="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-2.5">
-                <span>{v.icon}</span>
-                <div className="flex-1">
-                  <p className="text-xs font-medium text-white">{v.label}</p>
-                  <p className="text-[11px] text-gray-400">{v.name} · {v.role}</p>
+                className="flex items-center gap-3 bg-white/5 rounded-xl px-3 py-2.5">
+                <span className="text-base">{v.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-white truncate">{v.label}</p>
+                  <p className="text-[11px] text-gray-400 truncate">{v.name} · {v.role}</p>
                 </div>
-                <span className="text-green-400 text-xs">✓ Verified</span>
+                <span className="text-green-400 text-xs shrink-0">✓</span>
               </motion.div>
             ))}
           </div>
-          <button className="mt-6 w-full rounded-xl bg-gradient-to-r from-purple-600
-                             to-cyan-500 py-3 text-sm font-semibold text-white
-                             hover:opacity-90 transition-opacity">
-            Share My TrustCard
-          </button>
+          <Link href={ctaHref}
+            className="mt-5 block w-full rounded-xl bg-gradient-to-r from-purple-600
+                       to-cyan-500 py-3 text-sm font-semibold text-white text-center
+                       hover:opacity-90 transition-opacity active:scale-95">
+            {isLoggedIn ? "Go to Dashboard" : "Start Building Mine →"}
+          </Link>
         </motion.div>
       </section>
 
       {/* ── Stats bar ── */}
-      <section className="relative z-10 border-t border-white/5 py-16 px-6">
-        <div className="max-w-3xl mx-auto grid grid-cols-3 gap-8 text-center">
+      <section className="relative z-10 border-t border-white/5 py-14 px-5">
+        <div className="max-w-2xl mx-auto grid grid-cols-3 gap-4 text-center">
           {[
-            { value: 2400,  suffix: "+", label: "Trust profiles built"  },
-            { value: 11000, suffix: "+", label: "Vouches verified"      },
-            { value: 98,    suffix: "%", label: "Voucher response rate" },
+            { value: 2400,  suffix: "+", label: "Profiles built"      },
+            { value: 11000, suffix: "+", label: "Vouches verified"    },
+            { value: 98,    suffix: "%", label: "Response rate"       },
           ].map((s, i) => (
             <motion.div key={i} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }} transition={{ delay: i * 0.1 }}>
-              <p className="text-3xl md:text-4xl font-bold bg-gradient-to-r
+              <p className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r
                             from-purple-400 to-cyan-400 bg-clip-text text-transparent">
                 <Counter to={s.value} suffix={s.suffix} />
               </p>
-              <p className="text-sm text-gray-500 mt-1">{s.label}</p>
+              {/* Shorter labels so they don't wrap at 375px */}
+              <p className="text-xs text-gray-500 mt-1 leading-tight">{s.label}</p>
             </motion.div>
           ))}
         </div>

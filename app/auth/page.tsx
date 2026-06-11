@@ -28,10 +28,16 @@ function AuthForm() {
     setStatus("loading");
     setMessage("");
 
+    // Fix: use NEXT_PUBLIC_SITE_URL env var when available so magic links
+    // redirect to the deployed URL instead of localhost on mobile devices
+    const siteUrl =
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      (typeof window !== "undefined" ? window.location.origin : "");
+
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${location.origin}${next}`,
+        emailRedirectTo: `${siteUrl}${next}`,
       },
     });
 
@@ -259,11 +265,6 @@ export default function AuthPage() {
         transition={{ duration: 0.5 }}
         className="relative z-10 w-full max-w-md"
       >
-        {/*
-          Suspense is required here because AuthForm calls useSearchParams().
-          Next.js cannot statically render pages that read search params
-          without a Suspense boundary — the fallback shows during prerender.
-        */}
         <Suspense
           fallback={
             <div className="rounded-3xl border border-white/10 bg-white/5
