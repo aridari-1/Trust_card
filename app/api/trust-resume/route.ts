@@ -238,7 +238,7 @@ export async function GET(req: NextRequest) {
   const STRIP_H = 32;
   page.drawRectangle({ x: M, y: PAGE_H - M - STRIP_H, width: INNER, height: STRIP_H, color: C.cardBg });
   // Purple dot
-  page.drawEllipse({ cx: M + 18, cy: PAGE_H - M - STRIP_H / 2, xScale: 7, yScale: 7, color: C.purple });
+  page.drawEllipse({ x: M + 18, y: PAGE_H - M - STRIP_H / 2, xScale: 7, yScale: 7, color: C.purple });
   safeText(page, "TRUSTCARD", M + 30, PAGE_H - M - STRIP_H / 2 - 3.5, reg, 7, C.greyMid);
   const ctxW = reg.widthOfTextAtSize(ctxLabel.toUpperCase(), 7);
   safeText(page, ctxLabel.toUpperCase(), PAGE_W - M - ctxW - 6, PAGE_H - M - STRIP_H / 2 - 3.5, reg, 7, C.greyMid);
@@ -250,7 +250,7 @@ export async function GET(req: NextRequest) {
   page.drawRectangle({ x: M, y: y - CARD_H, width: INNER, height: CARD_H, color: C.cardBg });
   // Border
   page.drawRectangle({ x: M, y: y - CARD_H, width: INNER, height: CARD_H,
-    borderColor: C.border, borderWidth: 0.5, color: undefined as any });
+    borderColor: C.border, borderWidth: 0.5, opacity: 0 });
 
   // Name
   safeText(page, profile.full_name, M + 18, y - 32, bold, 22, C.white);
@@ -263,11 +263,11 @@ export async function GET(req: NextRequest) {
   const ringCX  = PAGE_W - M - 60;
   const ringCY  = y - CARD_H / 2;
   const ringR   = 26;
-  page.drawEllipse({ cx: ringCX, cy: ringCY, xScale: ringR + 4, yScale: ringR + 4,
-    borderColor: C.border, borderWidth: 3, color: undefined as any });
+  page.drawEllipse({ x: ringCX, y: ringCY, xScale: ringR + 4, yScale: ringR + 4,
+    borderColor: C.border, borderWidth: 3, opacity: 0 });
   const ringColor = score >= 70 ? C.green : score >= 40 ? C.purple : C.greyDrk;
-  page.drawEllipse({ cx: ringCX, cy: ringCY, xScale: ringR, yScale: ringR,
-    borderColor: ringColor, borderWidth: 3, color: undefined as any });
+  page.drawEllipse({ x: ringCX, y: ringCY, xScale: ringR, yScale: ringR,
+    borderColor: ringColor, borderWidth: 3, opacity: 0 });
   const scoreStr = String(score);
   const scoreW   = bold.widthOfTextAtSize(scoreStr, 14);
   safeText(page, scoreStr, ringCX - scoreW / 2, ringCY - 4, bold, 14, C.white);
@@ -340,7 +340,7 @@ export async function GET(req: NextRequest) {
     // Card box
     p.drawRectangle({ x: M, y: startY - estH, width: INNER, height: estH, color: C.cardBg });
     p.drawRectangle({ x: M, y: startY - estH, width: INNER, height: estH,
-      borderColor: C.border, borderWidth: 0.4, color: undefined as any });
+      borderColor: C.border, borderWidth: 0.4, opacity: 0 });
 
     const ix = M + 14;
     let iy   = startY - 18;
@@ -453,11 +453,18 @@ export async function GET(req: NextRequest) {
   safeText(fp, profileUrl, PAGE_W - M - 36 + 18 - urlW / 2, M - 12, reg, 3.5, C.black);
 
   // ── Serialize ──────────────────────────────────────────────────────────────
-  const pdfBytes  = await pdfDoc.save();
-  const ctxSlug   = ctxLabel.toLowerCase().replace(/\s+/g, "-");
-  const filename  = `trustcard-${profile.username}-${ctxSlug}.pdf`;
+  const pdfBytes = await pdfDoc.save();
+  const ctxSlug  = ctxLabel.toLowerCase().replace(/\s+/g, "-");
+  const filename = `trustcard-${profile.username}-${ctxSlug}.pdf`;
 
-  return new Response(pdfBytes, {
+  // Copy into a plain ArrayBuffer — avoids Uint8Array<ArrayBufferLike> BodyInit
+  // type error that appears in some TS/Next.js version combinations
+  const arrayBuffer = pdfBytes.buffer.slice(
+    pdfBytes.byteOffset,
+    pdfBytes.byteOffset + pdfBytes.byteLength
+  ) as ArrayBuffer;
+
+  return new Response(arrayBuffer, {
     status: 200,
     headers: {
       "Content-Type":        "application/pdf",
