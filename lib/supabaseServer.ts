@@ -18,9 +18,11 @@ export async function createClient() {
               cookieStore.set(name, value, options);
             });
           } catch {
-            // Called from a Server Component — cookie writes are ignored here.
-            // Supabase will still refresh the session on the next Server Action
-            // or Route Handler call, so this is safe to swallow.
+            // Server Components cannot write cookies — silently ignore.
+            // The client-side Supabase instance handles token refreshes,
+            // which prevents the "refresh_token_already_used" race condition
+            // that occurs when multiple server requests try to refresh
+            // the same token simultaneously.
           }
         },
       },

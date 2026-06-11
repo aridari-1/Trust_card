@@ -108,6 +108,11 @@ function safeText(
   }
 }
 
+// ─── In-memory rate limiter ───────────────────────────────────────────────────
+// Simple per-user cooldown — resets on server restart (fine for serverless)
+const lastGenerated = new Map<string, number>();
+const RATE_LIMIT_MS = 30_000; // 30 seconds between generations
+
 // ─── GET ──────────────────────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -125,11 +130,24 @@ export async function GET(req: NextRequest) {
     { global: { headers: { Authorization: `Bearer ${token}` } } }
   );
 
+  // ── Auth check ──────────────────────────────────────────────────────────────
   const { data: { user } } = await supabase.auth.getUser();
   if (!user || user.id !== userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // ── Rate limit — max one PDF per 30 seconds per user ───────────────────────
+  const last = lastGenerated.get(userId);
+  if (last && Date.now() - last < RATE_LIMIT_MS) {
+    const wait = Math.ceil((RATE_LIMIT_MS - (Date.now() - last)) / 1000);
+    return NextResponse.json(
+      { error: `Please wait ${wait} seconds before generating another PDF.` },
+      { status: 429 }
+    );
+  }
+  lastGenerated.set(userId, Date.now());
+
+  // ── Fetch profile ───────────────────────────────────────────────────────────
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("full_name, username, school, major, bio, trust_score, created_at")
@@ -140,6 +158,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Profile not found" }, { status: 404 });
   }
 
+  // ── Fetch vouches ───────────────────────────────────────────────────────────
   const relationshipFilter = CONTEXT_FILTERS[context] ?? [];
   let query = supabase
     .from("vouches")
@@ -179,10 +198,10 @@ export async function GET(req: NextRequest) {
   const reg    = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const italic = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
 
-  const PW = 595;   // A4 width pts
-  const PH = 842;   // A4 height pts
-  const M  = 50;    // margin
-  const IW = PW - M * 2; // inner width
+  const PW = 595;
+  const PH = 842;
+  const M  = 50;
+  const IW = PW - M * 2;
 
   function addPage(): PDFPage {
     const p = pdfDoc.addPage([PW, PH]);
@@ -196,10 +215,7 @@ export async function GET(req: NextRequest) {
   // ── Header strip ──────────────────────────────────────────────────────────
   const STRIP_H = 32;
   page.drawRectangle({ x: M, y: PH - M - STRIP_H, width: IW, height: STRIP_H, color: C.cardBg });
-
-  // Purple dot — drawCircle not available, use a small filled rectangle
   page.drawRectangle({ x: M + 12, y: PH - M - STRIP_H / 2 - 4, width: 8, height: 8, color: C.purple });
-
   safeText(page, "TRUSTCARD", M + 26, PH - M - STRIP_H / 2 - 3, reg, 7, C.greyMid);
   const ctxW = reg.widthOfTextAtSize(ctxLabel.toUpperCase(), 7);
   safeText(page, ctxLabel.toUpperCase(), PW - M - ctxW - 6, PH - M - STRIP_H / 2 - 3, reg, 7, C.greyMid);
@@ -208,11 +224,8 @@ export async function GET(req: NextRequest) {
 
   // ── Identity card ──────────────────────────────────────────────────────────
   const CARD_H = 110;
-  // Fill
   page.drawRectangle({ x: M, y: y - CARD_H, width: IW, height: CARD_H, color: C.cardBg });
-  // Border (draw as 4 lines — more reliable than drawRectangle borderColor)
-  const bx = M, by = y - CARD_H, bw = IW, bh = CARD_H;
-  const bl = 0.5;
+  const bx = M, by = y - CARD_H, bw = IW, bh = CARD_H, bl = 0.5;
   page.drawLine({ start: { x: bx,      y: by      }, end: { x: bx + bw, y: by      }, color: C.border, thickness: bl });
   page.drawLine({ start: { x: bx,      y: by + bh }, end: { x: bx + bw, y: by + bh }, color: C.border, thickness: bl });
   page.drawLine({ start: { x: bx,      y: by      }, end: { x: bx,      y: by + bh }, color: C.border, thickness: bl });
@@ -223,30 +236,24 @@ export async function GET(req: NextRequest) {
   const infoParts = [profile.major, profile.school].filter(Boolean).join("  .  ");
   if (infoParts) safeText(page, infoParts, M + 18, y - 66, reg, 9, C.greyMid);
 
-  // Score "ring" — two concentric squares (rings not possible without SVG)
-  const score    = profile.trust_score ?? 0;
-  const rCX      = PW - M - 55;
-  const rCY      = y - CARD_H / 2;
-  const rSize    = 26;
+  const score     = profile.trust_score ?? 0;
+  const rCX       = PW - M - 55;
+  const rCY       = y - CARD_H / 2;
+  const rSize     = 26;
   const ringColor = score >= 70 ? C.green : score >= 40 ? C.purple : C.greyDrk;
-  // Outer border square
   page.drawRectangle({ x: rCX - rSize - 4, y: rCY - rSize - 4,
     width: (rSize + 4) * 2, height: (rSize + 4) * 2, color: C.border });
-  // Inner fill square (card bg color — creates "ring" illusion)
   page.drawRectangle({ x: rCX - rSize, y: rCY - rSize,
     width: rSize * 2, height: rSize * 2, color: C.cardBg });
-  // Thin colored top bar = score indicator
-  const barW = Math.round((score / 100) * rSize * 2);
+  const scoreBarW = Math.round((score / 100) * rSize * 2);
   page.drawRectangle({ x: rCX - rSize, y: rCY + rSize - 4,
-    width: barW, height: 4, color: ringColor });
-
-  const scoreStr = String(score);
-  const scoreW   = bold.widthOfTextAtSize(scoreStr, 14);
+    width: scoreBarW, height: 4, color: ringColor });
+  const scoreStr  = String(score);
+  const scoreW    = bold.widthOfTextAtSize(scoreStr, 14);
   safeText(page, scoreStr, rCX - scoreW / 2, rCY - 4, bold, 14, C.white);
   const scoreLblW = reg.widthOfTextAtSize("SCORE", 6);
   safeText(page, "SCORE", rCX - scoreLblW / 2, rCY - 14, reg, 6, C.greyDrk);
 
-  // Chips
   const chipY = y - CARD_H + 20;
   const chips: [string, string][] = [
     [String(totalVouches), "VOUCHES"],
@@ -313,27 +320,22 @@ export async function GET(req: NextRequest) {
       startY = PH - M - 10;
     }
 
-    // Card fill
     p.drawRectangle({ x: M, y: startY - estH, width: IW, height: estH, color: C.cardBg });
-    // Card border as lines
     const cx2 = M, cy2 = startY - estH;
-    p.drawLine({ start: { x: cx2,      y: cy2       }, end: { x: cx2 + IW, y: cy2       }, color: C.border, thickness: 0.4 });
-    p.drawLine({ start: { x: cx2,      y: cy2 + estH}, end: { x: cx2 + IW, y: cy2 + estH}, color: C.border, thickness: 0.4 });
-    p.drawLine({ start: { x: cx2,      y: cy2       }, end: { x: cx2,      y: cy2 + estH}, color: C.border, thickness: 0.4 });
-    p.drawLine({ start: { x: cx2 + IW, y: cy2       }, end: { x: cx2 + IW, y: cy2 + estH}, color: C.border, thickness: 0.4 });
+    p.drawLine({ start: { x: cx2,      y: cy2        }, end: { x: cx2 + IW, y: cy2        }, color: C.border, thickness: 0.4 });
+    p.drawLine({ start: { x: cx2,      y: cy2 + estH }, end: { x: cx2 + IW, y: cy2 + estH }, color: C.border, thickness: 0.4 });
+    p.drawLine({ start: { x: cx2,      y: cy2        }, end: { x: cx2,      y: cy2 + estH }, color: C.border, thickness: 0.4 });
+    p.drawLine({ start: { x: cx2 + IW, y: cy2        }, end: { x: cx2 + IW, y: cy2 + estH }, color: C.border, thickness: 0.4 });
 
     const ix = M + 14;
     let iy   = startY - 18;
 
-    // Vouch type name
     safeText(p, vtype.name ?? "Vouch", ix, iy, bold, 9, C.white);
 
-    // Average score
     const avgStr = String(avgVal);
     const avgW   = bold.widthOfTextAtSize(avgStr, 11);
     safeText(p, avgStr, PW - M - 14 - avgW, iy, bold, 11, C.purple);
 
-    // Credibility badge
     const credLbl = CREDIBILITY_LABELS[weight] ?? "Known";
     const badgeW  = reg.widthOfTextAtSize(credLbl.toUpperCase(), 5.5) + 8;
     const badgeX  = PW - M - 14 - avgW - 6 - badgeW;
@@ -344,7 +346,6 @@ export async function GET(req: NextRequest) {
 
     iy -= 16;
 
-    // Relationship line
     const relParts: string[] = [];
     if (rtype && RELATIONSHIP_LABELS[rtype]) relParts.push(RELATIONSHIP_LABELS[rtype]);
     if (rdur  && DURATION_LABELS[rdur])      relParts.push(DURATION_LABELS[rdur]);
@@ -359,7 +360,6 @@ export async function GET(req: NextRequest) {
       iy -= 14;
     }
 
-    // Collaboration context
     if (collab) {
       const collabStr = collab.slice(0, 90) + (collab.length > 90 ? "..." : "");
       p.drawRectangle({ x: ix, y: iy - 14, width: IW - 28, height: 16, color: C.dark2 });
@@ -367,7 +367,6 @@ export async function GET(req: NextRequest) {
       iy -= 20;
     }
 
-    // Comment
     if (comment) {
       const lines = wrapText(`"${comment}"`, italic, 8, IW - 28);
       for (const line of lines) {
@@ -379,7 +378,6 @@ export async function GET(req: NextRequest) {
 
     iy -= 6;
 
-    // Rating bars (2 columns)
     const barData: [string, number][] = (
       [
         ["Reliability",   v.rating_reliability],
@@ -391,13 +389,13 @@ export async function GET(req: NextRequest) {
 
     const colW = (IW - 28) / 2;
     barData.forEach(([barLbl, val], i) => {
-      const bx = ix + (i % 2) * colW;
-      const by = iy - Math.floor(i / 2) * 14;
-      safeText(p, barLbl.toUpperCase(), bx, by, reg, 6, C.greyDrk);
+      const bxBar = ix + (i % 2) * colW;
+      const byBar = iy - Math.floor(i / 2) * 14;
+      safeText(p, barLbl.toUpperCase(), bxBar, byBar, reg, 6, C.greyDrk);
       const BAR_W = 55;
-      p.drawRectangle({ x: bx + 62, y: by - 1, width: BAR_W,           height: 3, color: C.border });
-      p.drawRectangle({ x: bx + 62, y: by - 1, width: BAR_W * (val / 5), height: 3, color: C.purple });
-      safeText(p, `${val}/5`, bx + 120, by, reg, 6, C.greyMid);
+      p.drawRectangle({ x: bxBar + 62, y: byBar - 1, width: BAR_W,             height: 3, color: C.border });
+      p.drawRectangle({ x: bxBar + 62, y: byBar - 1, width: BAR_W * (val / 5), height: 3, color: C.purple });
+      safeText(p, `${val}/5`, bxBar + 120, byBar, reg, 6, C.greyMid);
     });
 
     return startY - estH - 10;
@@ -425,7 +423,6 @@ export async function GET(req: NextRequest) {
   safeText(fp, profileUrl, M, M + 6, reg, 6.5, C.greyDrk);
   safeText(fp, "Verify live at:", PW - M - 120, M + 6, reg, 6.5, C.greyDrk);
 
-  // QR placeholder
   fp.drawRectangle({ x: PW - M - 36, y: M - 28, width: 36, height: 36, color: C.white });
   const urlW = reg.widthOfTextAtSize(profileUrl, 3.5);
   safeText(fp, profileUrl, PW - M - 36 + 18 - urlW / 2, M - 12, reg, 3.5, C.black);

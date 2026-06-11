@@ -261,7 +261,19 @@ function DemoModal({ onClose }: { onClose: () => void }) {
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4">
           <div className="flex items-center gap-2">
-            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-purple-500 to-cyan-400" />
+            <svg width="20" height="20" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+              <defs>
+                <linearGradient id="tc-modal" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#a855f7"/>
+                  <stop offset="100%" stopColor="#06b6d4"/>
+                </linearGradient>
+              </defs>
+              <circle cx="24" cy="24" r="23" fill="url(#tc-modal)" fillOpacity="0.12"/>
+              <circle cx="24" cy="24" r="23" stroke="url(#tc-modal)" strokeWidth="1.8"/>
+              <rect x="9" y="14" width="22" height="4" rx="2" fill="url(#tc-modal)"/>
+              <rect x="18" y="14" width="4" height="22" rx="2" fill="url(#tc-modal)"/>
+              <path d="M33 17 A11 11 0 0 1 33 33" stroke="url(#tc-modal)" strokeWidth="4" strokeLinecap="round"/>
+            </svg>
             <span className="text-[10px] font-semibold tracking-widest uppercase text-white/40">TrustCard</span>
           </div>
           <div className="flex items-center gap-3">
@@ -287,7 +299,7 @@ function DemoModal({ onClose }: { onClose: () => void }) {
             {step === 0 && (
               <div>
                 <h2 className="text-xl font-bold text-white leading-tight mb-2">
-                  Your reputation starts before your résumé.
+                  Your reputation starts before your resume.
                 </h2>
                 <p className="text-sm text-white/35 leading-relaxed mb-4">
                   Collect verified vouches from professors, managers, and teammates —

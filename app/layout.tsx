@@ -15,13 +15,22 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "TrustCard",
   description: "Your reputation, finally portable.",
+  icons: {
+    icon: "/favicon.svg",
+    shortcut: "/favicon.svg",
+    apple: "/favicon.svg",
+  },
+  openGraph: {
+    title: "TrustCard",
+    description: "Your reputation, finally portable.",
+    siteName: "TrustCard",
+  },
 };
 
-// Fix 1: viewport meta — without this iPhones render tiny zoomed-out text
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1, // prevents iOS double-tap zoom on buttons
+  maximumScale: 1,
 };
 
 export default function RootLayout({
