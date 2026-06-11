@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #080808;
+  --foreground: #ededed;
 }
 
 @theme inline {
@@ -12,15 +12,79 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/* Legacy input class — kept for any pages not yet migrated to explicit Tailwind classes */
+.input {
+  width: 100%;
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0.75rem 1rem;
+  color: white;
+  outline: none;
+  font-size: 16px; /* Fix: prevents iOS Safari auto-zoom on focus */
+  transition: border-color 0.2s;
+}
+
+.input:focus {
+  border-color: rgba(168, 85, 247, 0.6);
+}
+
+.input::placeholder {
+  color: rgba(255, 255, 255, 0.2);
+}
+
+/* ─── Mobile fixes ─────────────────────────────────────────────────────────── */
+
+/*
+  Fix: iOS Safari zooms in when an input has font-size < 16px.
+  This overrides Tailwind's text-sm (14px) on all form elements globally.
+  The !important is intentional — Tailwind utility classes would otherwise win.
+*/
+input,
+textarea,
+select {
+  font-size: 16px !important;
+}
+
+/*
+  Fix: range sliders have tiny thumbs on touch screens by default.
+  These rules increase the thumb to 22px — large enough for a finger tap.
+*/
+input[type="range"] {
+  height: 24px;
+  cursor: pointer;
+  accent-color: #a855f7;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #a855f7;
+  cursor: pointer;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #a855f7;
+  cursor: pointer;
+  border: none;
+}
+
+/*
+  Fix: tap highlight flicker on mobile — removes the grey flash
+  that appears when tapping buttons and links on iOS/Android.
+*/
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
 }
