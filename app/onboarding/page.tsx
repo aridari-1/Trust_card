@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, Suspense } from "react";
+import { useState, useRef, useEffect, Suspense } from "react";
 import { createClient } from "@/lib/supabaseClient";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -124,6 +124,39 @@ function OnboardingInner() {
   const [submitError, setSubmitError] = useState("");
   const [submitting,  setSubmitting]  = useState(false);
 
+  // ── Store user ID on mount — avoids session timing issues after magic link ──
+  const [userId, setUserId] = useState<string | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
+
+  useEffect(() => {
+    async function resolveSession() {
+      // getSession() reads from localStorage immediately — no network call needed
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        setUserId(session.user.id);
+        setSessionLoading(false);
+        return;
+      }
+      // If no session yet, listen for the auth state change
+      // (magic link redirect fires onAuthStateChange)
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(
+        (_event, newSession) => {
+          if (newSession?.user) {
+            setUserId(newSession.user.id);
+            setSessionLoading(false);
+            subscription.unsubscribe();
+          }
+        }
+      );
+      // Timeout after 8 seconds — show error rather than hang forever
+      setTimeout(() => {
+        setSessionLoading(false);
+        subscription.unsubscribe();
+      }, 8000);
+    }
+    resolveSession();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleUsernameChange(raw: string) {
     setUsername(sanitizeUsername(raw));
     setUsernameAvailable(null);
@@ -148,10 +181,22 @@ function OnboardingInner() {
   async function createProfile() {
     setSubmitError("");
     setSubmitting(true);
-    const { data: userData } = await supabase.auth.getUser();
-    if (!userData.user) { setSubmitError("You need to sign in first."); setSubmitting(false); return; }
+    // Use the userId stored on mount — avoids getUser() failing after magic link redirect
+    const uid = userId;
+    if (!uid) {
+      // One last attempt via refreshSession before giving up
+      const { data: refreshed } = await supabase.auth.refreshSession();
+      if (!refreshed.session?.user) {
+        setSubmitError("Session expired — please sign in again.");
+        setSubmitting(false);
+        return;
+      }
+      setUserId(refreshed.session.user.id);
+    }
+    const finalId = uid || (await supabase.auth.getSession()).data.session?.user?.id;
+    if (!finalId) { setSubmitError("You need to sign in first."); setSubmitting(false); return; }
     const { error } = await supabase.from("profiles").upsert({
-      id: userData.user.id, full_name: fullName, username, school, major, bio,
+      id: finalId, full_name: fullName, username, school, major, bio,
     });
     if (error) { setSubmitError(error.message); setSubmitting(false); return; }
     const { data: types } = await supabase.from("vouch_types").select("id, name, slug").order("id").limit(1);
@@ -163,10 +208,10 @@ function OnboardingInner() {
   async function sendFirstVouch() {
     if (!voucherEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(voucherEmail)) return;
     setVouchSending(true);
-    const { data: userData } = await supabase.auth.getUser();
-    if (!userData.user) { setVouchSending(false); return; }
+    const uid = userId || (await supabase.auth.getSession()).data.session?.user?.id;
+    if (!uid) { setVouchSending(false); return; }
     const { data, error } = await supabase.from("vouch_requests").insert({
-      requester_id:   userData.user.id,
+      requester_id:   uid,
       receiver_email: voucherEmail.toLowerCase().trim(),
       vouch_type_id:  vouchTypeId,
       message: `Hey! I just created my TrustCard profile — it's a reputation page that lets people verify who I am before we work together. Would you be willing to give me a quick vouch? It only takes 2 minutes.`,
@@ -181,6 +226,35 @@ function OnboardingInner() {
     setVouchCopied(true);
     setTimeout(() => setVouchCopied(false), 2500);
   }
+
+  // ── Session loading gate ──────────────────────────────────────────────────
+  if (sessionLoading) return (
+    <Shell step={0}>
+      <div className="flex flex-col items-center gap-4 py-8">
+        <svg className="w-6 h-6 animate-spin text-purple-400" viewBox="0 0 24 24" fill="none">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+        </svg>
+        <p className="text-sm text-white/40">Setting up your account…</p>
+      </div>
+    </Shell>
+  );
+
+  // ── No session found ───────────────────────────────────────────────────────
+  if (!userId) return (
+    <Shell step={0}>
+      <div className="text-center py-8">
+        <p className="text-white/60 text-sm mb-4">
+          Your session couldn't be verified. Please sign in again.
+        </p>
+        <button onClick={() => router.push("/auth")}
+          className="px-6 py-3 rounded-xl bg-gradient-to-r from-purple-600 to-cyan-500
+                     text-sm font-semibold text-white hover:opacity-90 transition-opacity">
+          Sign in →
+        </button>
+      </div>
+    </Shell>
+  );
 
   // ── Step 0 — Name ──────────────────────────────────────────────────────────
   if (step === 0) return (
